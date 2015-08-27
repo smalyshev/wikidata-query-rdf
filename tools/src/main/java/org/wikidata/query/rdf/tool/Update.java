@@ -14,6 +14,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -290,27 +291,33 @@ public class Update<B extends Change.Batch> implements Runnable {
      *             changes
      */
     private void handleChanges(Change.Batch batch) throws InterruptedException, ExecutionException {
-        List<Future<?>> tasks = new ArrayList<>();
+        List<Future<String>> tasks = new ArrayList<>();
         for (final Change change : batch.changes()) {
-            tasks.add(executor.submit(new Runnable() {
+            tasks.add(executor.submit(new Callable<String>() {
                 @Override
-                public void run() {
+                public String call() {
                     while (true) {
                         try {
-                            handleChange(change);
-                            return;
+                            return handleChange(change);
                         } catch (RetryableException e) {
                             log.warn("Retryable error syncing.  Retrying.", e);
                         } catch (ContainedException e) {
                             log.warn("Contained error syncing.  Giving up on " + change.entityId(), e);
-                            return;
+                            return null;
                         }
                     }
                 }
             }));
         }
-        for (Future<?> task : tasks) {
-            task.get();
+        StringBuilder bigQuery = new StringBuilder();
+        for (Future<String> task : tasks) {
+            String query = task.get();
+            if (query != null) {
+                bigQuery.append(query);
+            }
+        }
+        if (bigQuery.length() > 0) {
+            rdfRepository.syncQuery(bigQuery.toString());
         }
     }
 
@@ -350,11 +357,11 @@ public class Update<B extends Change.Batch> implements Runnable {
      * @throws RetryableException if there is a retryable error updating the rdf
      *             store
      */
-    private void handleChange(Change change) throws RetryableException {
+    private String handleChange(Change change) throws RetryableException {
         log.debug("Received revision information {}", change);
         if (change.revision() >= 0 && rdfRepository.hasRevision(change.entityId(), change.revision())) {
             log.debug("RDF repository already has this revision, skipping.");
-            return;
+            return null;
         }
         Collection<Statement> statements = wikibase.fetchRdfForEntity(change.entityId());
         Set<String> values = rdfRepository.getValues(change.entityId());
@@ -363,8 +370,8 @@ public class Update<B extends Change.Batch> implements Runnable {
         List<String> cleanupList = new ArrayList<>();
         cleanupList.addAll(values);
         cleanupList.addAll(refs);
-        rdfRepository.sync(change.entityId(), statements, cleanupList);
         updateMeter.mark();
+        return rdfRepository.getSyncQuery(change.entityId(), statements, cleanupList);
     }
 
     /**

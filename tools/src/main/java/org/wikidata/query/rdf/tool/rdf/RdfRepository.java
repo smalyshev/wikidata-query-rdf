@@ -242,20 +242,14 @@ public class RdfRepository {
     }
 
     /**
-     * Synchronizes the RDF repository's representation of an entity to be
-     * exactly the provided statements. You can think of the RDF managed for an
-     * entity as a tree rooted at the entity. The managed tree ends where the
-     * next entity's managed tree starts. For example Q23 from wikidata includes
-     * all statements about George Washington but not those about Martha
-     * (Q191789) even though she is linked by the spouse attribute. On the other
-     * hand the qualifiers on statements about George are included in George.
+     * Provides the SPARQL needed to syncronize the data statements.
      *
      * @param entityId id of the entity to sync
      * @param statements all known statements about the entity
      * @param valueList list of used values, for cleanup
      * @return the number of statements modified
      */
-    public int sync(String entityId, Collection<Statement> statements, Collection<String> valueList) {
+    public String getSyncQuery(String entityId, Collection<Statement> statements, Collection<String> valueList) {
         // TODO this is becoming a mess too
         log.debug("Updating data for {}", entityId);
         UpdateBuilder b = new UpdateBuilder(syncBody);
@@ -287,11 +281,45 @@ public class RdfRepository {
             b.bind("cleanupQuery", "");
         }
 
+        return b.toString();
+    }
+
+    /**
+     * Synchronizes the RDF repository's representation of an entity to be
+     * exactly the provided statements. You can think of the RDF managed for an
+     * entity as a tree rooted at the entity. The managed tree ends where the
+     * next entity's managed tree starts. For example Q23 from wikidata includes
+     * all statements about George Washington but not those about Martha
+     * (Q191789) even though she is linked by the spouse attribute. On the other
+     * hand the qualifiers on statements about George are included in George.
+     *
+     * @param entityId id of the entity to sync
+     * @param statements all known statements about the entity
+     * @param valueList list of used values, for cleanup
+     * @return the number of statements modified
+     */
+    public int sync(String entityId, Collection<Statement> statements, Collection<String> valueList) {
         long start = System.currentTimeMillis();
-        int modified = execute("update", UPDATE_COUNT_RESPONSE, b.toString());
+        int modified = execute("update", UPDATE_COUNT_RESPONSE, getSyncQuery(entityId, statements, valueList));
         log.debug("Updating {} took {} millis and modified {} statements", entityId,
                 System.currentTimeMillis() - start, modified);
         return modified;
+    }
+
+    /**
+     * Synchronizes the RDF repository's representation of an entity to be
+     * exactly the provided statements.
+     *
+     * @param query Query text
+     * @return the number of statements modified
+     */
+    public int syncQuery(String query) {
+        long start = System.currentTimeMillis();
+        int modified = execute("update", UPDATE_COUNT_RESPONSE, query);
+        log.debug("Update query took {} millis and modified {} statements",
+                System.currentTimeMillis() - start, modified);
+        return modified;
+
     }
 
     /**
@@ -392,6 +420,7 @@ public class RdfRepository {
         // reporting.....
         List<NameValuePair> entity = new ArrayList<>();
         entity.add(new BasicNameValuePair(type, sparql));
+        entity.add(new BasicNameValuePair("monitor", "true"));
         post.setEntity(new UrlEncodedFormEntity(entity, Consts.UTF_8));
         int retries = 0;
         while (true) {
@@ -506,10 +535,15 @@ public class RdfRepository {
          */
         private static final Pattern ELAPSED_LINE = Pattern.compile("><p>totalElapsed=[^ ]+ elapsed=([^<]+)</p");
         /**
+         * The pattern for the response for an update, with extended times.
+         */
+        private static final Pattern EXTENDED_ELAPSED_LINE =
+                Pattern.compile("><p>totalElapsed=([^ ]+) elapsed=([^ ]+) whereClause=([^ ]+) deleteClause=([^ ]+) insertClause=([^ <]+)</p");
+        /**
          * The pattern for the response for a commit.
          */
         private static final Pattern COMMIT_LINE = Pattern
-                .compile("><hr><p>COMMIT: totalElapsed=[^ ]+ commitTime=[^ ]+ mutationCount=([^<]+)</p");
+                .compile("><hr><p>COMMIT: totalElapsed=([^ ]+) commitTime=[^ ]+ mutationCount=([^<]+)</p");
         /**
          * The pattern for the response from a bulk update.
          */
@@ -527,15 +561,21 @@ public class RdfRepository {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(entity.getContent(), Charsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    Matcher m = ELAPSED_LINE.matcher(line);
+                    Matcher m;
+                    m = EXTENDED_ELAPSED_LINE.matcher(line);
                     if (m.matches()) {
-                        log.trace("elapsed = {}", m.group(1));
+                        log.debug("total = {} elapsed = {} where = {} delete = {} insert = {}", m.group(1), m.group(2), m.group(3), m.group(4), m.group(5));
+                        continue;
+                    }
+                    m = ELAPSED_LINE.matcher(line);
+                    if (m.matches()) {
+                        log.debug("elapsed = {}", m.group(1));
                         continue;
                     }
                     m = COMMIT_LINE.matcher(line);
                     if (m.matches()) {
-                        log.debug("mutation count = {}", m.group(1));
-                        mutationCount = Integer.valueOf(m.group(1));
+                        log.debug("total = {} mutation count = {} ", m.group(1), m.group(2));
+                        mutationCount = Integer.valueOf(m.group(2));
                         continue;
                     }
                     m = BULK_UPDATE_LINE.matcher(line);
