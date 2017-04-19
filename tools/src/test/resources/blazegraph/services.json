@@ -1,0 +1,22 @@
+{
+	"Categories": {
+		"params": {
+			"action": "query",
+			"prop": "categories",
+			"titles": {
+				"type": "list"
+			},
+			"cllimit": {
+				"type": "int",
+				"default": 500
+			}
+		},
+		"output": {
+			"items": "//api/query/pages/page/categories",
+			"vars": {
+				"category": "@title",
+				"title": "//api/query/pages/page/@title"
+			}
+		}
+	}
+}

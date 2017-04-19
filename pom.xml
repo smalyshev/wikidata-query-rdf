@@ -67,6 +67,7 @@
 
   <properties>
     <blazegraph.version>2.1.5-SNAPSHOT</blazegraph.version>
+    <jackson.version>2.2.3</jackson.version>
     <jetty.version>9.2.3.v20140905</jetty.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <sesame.version>2.7.12</sesame.version>
@@ -97,6 +98,21 @@
         <artifactId>bigdata-war</artifactId>
         <version>${blazegraph.version}</version>
         <type>pom</type>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-annotations</artifactId>
+        <version>${jackson.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-core</artifactId>
+        <version>${jackson.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-databind</artifactId>
+        <version>${jackson.version}</version>
       </dependency>
       <dependency>
         <groupId>com.google.guava</groupId>
